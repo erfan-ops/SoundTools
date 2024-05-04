@@ -1,7 +1,7 @@
 """### made by Mohammad Erfan Karami
 github: https://github.com/erfan-ops
 
-### version: 0.2.0.6
+### version: 0.2.1.0
 
 this package is used to create, play and save sound files
 it has some basic sound waves although you can add your own and modify the package.
@@ -25,6 +25,7 @@ from soundfile import read as sfRead
 Dtype = np.dtype[np.float32|np.int16|np.uint8]
 SoundBuffer = np.ndarray[np.any, Dtype]
 Wave = Callable[[float, float, float], SoundBuffer]
+Note = str|float
 
 
 # its just a dictionary
@@ -59,8 +60,8 @@ class Sounds:
     def change_dtype(self, dtype: Dtype):
         self.dtype = dtype
         if self.dtype == np.float32:
-            self.min_amp = -0.95
-            self.max_amp = 0.95
+            self.min_amp = 0
+            self.max_amp = 1
         else:
             i = np.iinfo(self.dtype)
             self.min_amp = i.min+1
@@ -301,9 +302,9 @@ class Sounds:
         return buffer
     
     
-    def staccato(self, wave: SoundBuffer, dur: float, play_time: float=0.75) -> SoundBuffer:
+    def staccato(self, wave: SoundBuffer, play_time: float=0.75) -> SoundBuffer:
         playing = len(wave)*play_time
-        resting = (1-play_time)*dur
+        resting = (1-play_time) * (wave.size/self.default_sample_rate)
         return np.append(wave[0:int(playing)], self.generate_note_buffer(0, self.sine_wave, resting))
     
     
@@ -387,7 +388,7 @@ class Export:
         wf.write(file_path, sample_rate, buffer)
     
     # reads and return the bytes containing the sound from an erfan file
-    def read_from_erfan(self, file_name: str) -> bytes:
+    def read_from_erfan(self, file_name: str) -> SoundBuffer:
         """read and returns data from \".erfan\" file"""
         with open(file_name, "rb") as f:
             data = f.read()
@@ -539,7 +540,10 @@ class Music(Sounds, Export):
         if type(samp_width) == str:
             samp_width = self.get_sampwidth_from_str(dtype=samp_width)
         
-        return self.AUDIO_OBJECT.open(format=self.AUDIO_OBJECT.get_format_from_width(samp_width),
+        if not samp_width in (8, 32):
+            samp_width = self.AUDIO_OBJECT.get_format_from_width(samp_width)
+        
+        return self.AUDIO_OBJECT.open(format=samp_width,
                                       channels=channels,
                                       rate=sample_rate,
                                       output=True)
@@ -568,9 +572,9 @@ class Music(Sounds, Export):
         self.BASS_A = self.MIDDLE_A
         self._hbl = 1
         
-        while self.BASS_A >= 20:
-            self.BASS_A /= 2
-            self._hbl += 1
+        exponent = int(np.log2(self.MIDDLE_A / 20))
+        self.BASS_A /= 2**exponent
+        self._hbl = exponent+1
     
     # you need to call the "assign_frequencies" function after it to change all the note's frecuencies based on the new middle a
     # although you can just change the self.middle_a value and use init after it, which will also call this function.
@@ -609,11 +613,8 @@ class Music(Sounds, Export):
     
     
     def fix_volume(self, volume:float=0) -> float:
-        if volume == 0:
-            volume = self.DEFAULT_VOLUME
-
-        if volume > self.max_amp:
-            volume = self.max_amp
+        if volume > self.max_amp or volume < self.min_amp:
+            raise f"volume must be between {self.min_amp} and {self.max_amp}"
         
         return volume
     
@@ -678,7 +679,7 @@ class Music(Sounds, Export):
     
     
     # creates a note buffer but doesn't turn it into bytes
-    def generate_note_buffer(self, note:str|float|int, wave_type: Wave, duration:str|float=0, volume:float=0) -> SoundBuffer:
+    def generate_note_buffer(self, note:Note, wave_type: Wave, duration:str|float=0, volume:float=0) -> SoundBuffer:
         """creates a sound wave based on the given note, wave type, duration and volume\n
         ### parameter note:
         can be a float as a frequency, or a string representing the note name forexample: \"A4\" or \"c#3\" or 220
@@ -686,9 +687,13 @@ class Music(Sounds, Export):
         can be an int representing the duration in beats (so it can be different based on the tempo)
         or can be a string representing the duration in seconds like this: \"2s\"
         ### note!:
-        if duration or volume are not passed as arguments when using the function, the default for both are 1, and you can change the default as well
+        if duration or volume are not passed as arguments when using the function, it will use `self.DEFAULT_DURATION` and `self.DEFAULT_VOLUME`, which you can change as well.
         ### example:
-        >>> generate_note_buffer("a4", sine_wave, \"1.5s\", 1)"""
+        >>> import soundtools
+        >>> m = soundtools.Music()
+        >>> m.init()
+        >>> note = m.generate_note_buffer("a4", m.sine_wave, \"1.5s\", 1)
+        >>> m.play_buffer(note)"""
         duration = self.fix_duration(duration)
         volume = self.fix_volume(volume)
         if str(note)[0].isdigit():
@@ -701,11 +706,15 @@ class Music(Sounds, Export):
     
     
     # creates a chord buffer but doesn't turn it into bytes
-    def generate_chord_buffer(self, notes: Iterable[str|float], wave_type: Wave, duration:str|float=0, volume:float=0) -> SoundBuffer:
+    def generate_chord_buffer(self, notes: Iterable[Note], wave_type: Wave, duration:str|float=0, volume:float=0) -> SoundBuffer:
         """creates a sound wave based on the given notes, wave type, duration and volume\n
         ### parameter notes:
         is an iterable of floats as a frequency, or a strings representing the note name forexample:
-        >>> generate_chord_buffer((220, \"C#3\", \"e3\"), wave_type, 1.5, 1)"""
+        >>> import soundtools
+        >>> m = soundtools.Music()
+        >>> m.init()
+        >>> chord = generate_chord_buffer((220, \"C#3\", \"e3\"), m.sine_wave, 1.5, 1)
+        >>> m.play_buffer(chord)"""
         
         buf = self.generate_note_buffer(notes[0], wave_type, duration, volume)
         for n in notes[1:]:
@@ -729,7 +738,7 @@ class Music(Sounds, Export):
     
     def add_buffers(a: SoundBuffer, b: SoundBuffer) -> SoundBuffer:
         s = a.size if a.size < b.size else b.size
-        return a[:s] + b[:s]
+        return (a[:s] + b[:s]) / 2
     
     
     def add_multiple_buffers(*buffers: SoundBuffer):
