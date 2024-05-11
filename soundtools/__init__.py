@@ -1,7 +1,7 @@
 """### made by Mohammad Erfan Karami
 github: https://github.com/erfan-ops
 
-### version: 0.2.1.0
+### version: 0.2.2.1
 
 this package is used to create, play and save sound files
 it has some basic sound waves although you can add your own and modify the package.

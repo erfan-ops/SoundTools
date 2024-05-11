@@ -1,7 +1,7 @@
 """### made by Mohammad Erfan Karami
 github: https://github.com/erfan-ops
 
-### version: 0.2.2.0
+### version: 0.2.2.1
 
 this package is used to create, play and save sound files
 it has some basic sound waves although you can add your own and modify the package.
@@ -226,18 +226,26 @@ class Sounds:
         return wave
     
     
-    def _generate_fade_buffer(self, fade_len:int = 1500, dtype: Dtype|None=None) -> SoundBuffer:
+    def _generate_fade_buffer(self, fade_len:int, dtype: Dtype|None=None) -> SoundBuffer:
         dtype = self.dtype if not dtype else dtype
         return ((1 - np.cos(np.linspace(0, np.pi, fade_len))) * 0.5).astype(dtype)
     
     
-    def fade_in(self, buffer: SoundBuffer, fadein_len:int = 1500) -> SoundBuffer:
+    def fade_in(self, buffer: SoundBuffer, fadein_len:int) -> SoundBuffer:
         fadein = self._generate_fade_buffer(fadein_len, buffer.dtype)
         buffer[:fadein_len] *= fadein
         return buffer
     
     
-    def fade_out(self, buffer: SoundBuffer, fadeout_len:int = 1500) -> SoundBuffer:
+    def fade_in_secs(self, buffer: SoundBuffer, secs: float, sample_rate:int|None=None) -> SoundBuffer:
+        if not sample_rate:
+            sample_rate = self.default_sample_rate
+        
+        fadein_nsamples = secs * sample_rate
+        return self.fade_in(buffer, fadein_nsamples)
+    
+    
+    def fade_out(self, buffer: SoundBuffer, fadeout_len:int) -> SoundBuffer:
         fadein = self._generate_fade_buffer(fadeout_len, buffer.dtype)
         fadeout = np.flip(fadein)
         buffer[-fadeout_len:] *= fadeout
@@ -245,9 +253,26 @@ class Sounds:
         return buffer
     
     
-    def fade_in_out(self, buffer: SoundBuffer, fadein_len:int = 1500, fadeout_len:int = 1500) -> SoundBuffer:
+    def fade_out_secs(self, buffer: SoundBuffer, secs: float, sample_rate:int|None=None) -> SoundBuffer:
+        if not sample_rate:
+            sample_rate = self.default_sample_rate
+        
+        fadein_nsamples = secs * sample_rate
+        return self.fade_out(buffer, fadein_nsamples)
+    
+    
+    def fade_in_out(self, buffer: SoundBuffer, fadein_len:int, fadeout_len:int) -> SoundBuffer:
         buffer = self.fade_in(buffer, fadein_len)
         buffer = self.fade_out(buffer, fadeout_len)
+        return buffer
+    
+    
+    def fade_in_out_secs(self, buffer: SoundBuffer, fadein_secs: float, fadeout_secs: float, sample_rate:int|None=None) -> SoundBuffer:
+        if not sample_rate:
+            sample_rate = self.default_sample_rate
+        
+        buffer = self.fade_in_secs(buffer, fadein_secs, sample_rate)
+        buffer = self.fade_out_secs(buffer, fadeout_secs, sample_rate)
         return buffer
     
     
