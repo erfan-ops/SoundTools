@@ -1,7 +1,7 @@
 """### made by Mohammad Erfan Karami
 github: https://github.com/erfan-ops
 
-### version: 0.2.2.1
+### version: 0.2.2.2
 
 this package is used to create, play and save sound files
 it has some basic sound waves although you can add your own and modify the package.
@@ -60,7 +60,7 @@ class Sounds:
     def change_dtype(self, dtype: Dtype):
         self.dtype = dtype
         if self.dtype == np.float32:
-            self.min_amp = 0
+            self.min_amp = -1
             self.max_amp = 1
         else:
             i = np.iinfo(self.dtype)
@@ -226,13 +226,15 @@ class Sounds:
         return wave
     
     
-    def _generate_fade_buffer(self, fade_len:int, dtype: Dtype|None=None) -> SoundBuffer:
-        dtype = self.dtype if not dtype else dtype
-        return ((1 - np.cos(np.linspace(0, np.pi, fade_len))) * 0.5).astype(dtype)
+    def _generate_fade_buffer(self, fade_len:int, start=0, stop=np.pi, dtype: Dtype|None=None) -> SoundBuffer:
+        if not dtype:
+            dtype = self.dtype
+        
+        return ((1 - np.cos(np.linspace(start, stop, fade_len))) * 0.5).astype(dtype)
     
     
     def fade_in(self, buffer: SoundBuffer, fadein_len:int) -> SoundBuffer:
-        fadein = self._generate_fade_buffer(fadein_len, buffer.dtype)
+        fadein = self._generate_fade_buffer(fadein_len, dtype=buffer.dtype)
         buffer[:fadein_len] *= fadein
         return buffer
     
@@ -246,7 +248,7 @@ class Sounds:
     
     
     def fade_out(self, buffer: SoundBuffer, fadeout_len:int) -> SoundBuffer:
-        fadein = self._generate_fade_buffer(fadeout_len, buffer.dtype)
+        fadein = self._generate_fade_buffer(fadeout_len, dtype=buffer.dtype)
         fadeout = np.flip(fadein)
         buffer[-fadeout_len:] *= fadeout
         
