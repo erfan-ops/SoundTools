@@ -1,7 +1,7 @@
 """### made by Mohammad Erfan Karami
 github: https://github.com/erfan-ops
 
-### version: 0.2.2.2
+### version: 0.2.3.0
 
 this package is used to create, play and save sound files
 it has some basic sound waves although you can add your own and modify the package.
@@ -12,7 +12,7 @@ and uses matplotlib to visualize the waves"""
 
 import pyaudio
 import numpy as np
-from typing import Callable, Iterable, Literal
+from typing import Callable, Iterable, Literal, Self
 import scipy.io.wavfile as wf
 import matplotlib.pyplot as plt
 import librosa.effects as effect
@@ -77,19 +77,19 @@ class Sounds:
         so this decorator will store the numpy array as a tuple in "self.existed_notes" and convert it back to a numpy array each time you want to use that wave
         \nreturns the cached value if available, otherwise caches the returned wave"""
         def decorator(func: Wave) -> SoundBuffer:
-            def wrapper(self, freq:float, dur:float, vol: float):
+            def wrapper(self: Self, freq:float, dur:float, vol: float):
                 # Error if frequency is negative
                 if freq < 0:
                     raise f"frequency must be positive number, given frequency: {freq}"
                 
-                name = f"{wave_type}|{freq}|{dur}"
+                name = f"{wave_type}|{freq}|{dur}|{self.dtype}"
                 if name in self.existed_notes.keys():
                     wave = vol * np.array(self.existed_notes[name], dtype=self.dtype)
                     return wave
                 
                 temp = func(self, freq, dur, self.max_amp)
                 result: SoundBuffer = func(self, freq, dur, vol)
-                result = self._fix_amp(result)
+                result = self._fix_amp(result, -vol, vol)
                 self.existed_notes[name] = self.array_to_tuple(temp)
                 
                 return result
@@ -120,8 +120,13 @@ class Sounds:
             #-- adding the harmonics --#
             buf += np.sin(fund*h) / h
         
-        wave = ((self.four_over_pi)*vol*buf).astype(self.dtype)
+        wave = (self.four_over_pi*vol*buf).astype(self.dtype)
         return wave
+    
+    @cache_wave("fast_sqr")
+    def fast_square_wave(self, f: float, dur: float, vol: float) -> SoundBuffer:
+        """the result is same as square_wave but it's time complexity is O(1)"""
+        return vol * ((-1)**np.floor(2 * f / self.default_sample_rate * np.arange(dur * self.default_sample_rate))).astype(self.dtype)
     
     @cache_wave("tri")
     def triangle_wave(self, freq:float, dur:float, vol: float) -> SoundBuffer:
@@ -143,6 +148,7 @@ class Sounds:
     
     @cache_wave("fast_tri")
     def fast_triangle_wave(self, freq:float, dur:float, vol: float) -> SoundBuffer:
+        """the result is same as triangle_wave but it's time complexity is O(1)"""
         return (self.two_oper_pi * vol * np.arcsin(np.sin(self.tau * np.arange(self.default_sample_rate * dur) * freq / self.default_sample_rate))).astype(self.dtype)
     
     @cache_wave("saw")
@@ -160,8 +166,16 @@ class Sounds:
         for h in range(2, n):
             buf += (-1)**h * (np.sin(fund * h) / h)
         
-        wave = (vol * ((-self.two_oper_pi)*buf)).astype(np.float32)
+        wave = (vol * ((-self.two_oper_pi)*buf)).astype(self.dtype)
         return wave
+    
+    @cache_wave("fast_saw")
+    def fast_sawtooth_wave(self, freq: float, dur: float, vol: float) -> SoundBuffer:
+        """the result is same as sawtooth_wave but it's time complexity is O(1)"""
+        T = 1/freq / 2 * self.default_sample_rate
+        t = freq * np.arange(dur * self.default_sample_rate + T) / self.default_sample_rate
+        wave = (t - np.floor(t) - 0.5)[int(T):]
+        return 2 * vol * wave.astype(self.dtype)
     
     def smooth_saw_wave(self, freq:float, dur:float, vol: float, smoothness: float=2.5) -> SoundBuffer:
         """creates a wave like saw wave but without the sharp points"""
@@ -220,9 +234,12 @@ class Sounds:
         return wave
     
     
-    def _fix_amp(self, wave: SoundBuffer) -> SoundBuffer:
-        wave[wave > self.max_amp] = self.max_amp
-        wave[wave < self.min_amp] = self.min_amp
+    def _fix_amp(self, wave: SoundBuffer, min_amp=None, max_amp=None) -> SoundBuffer:
+        if not min_amp: min_amp = self.min_amp
+        if not max_amp: max_amp = self.max_amp
+        
+        wave[wave > max_amp] = max_amp
+        wave[wave < min_amp] = min_amp
         return wave
     
     
@@ -476,7 +493,8 @@ class Music(Sounds, Export):
         self.init_input_stream()
     
     
-    def init_output_stream(self, samp_width:int|str="float32",
+    def init_output_stream(self,
+                           samp_width:int|str="float32",
                            n_channels:int|None=None,
                            sample_rate:int|None=None) -> None:
         
@@ -490,7 +508,8 @@ class Music(Sounds, Export):
                                          sample_rate=sample_rate)
     
     
-    def init_input_stream(self, samp_width: int|str="float32",
+    def init_input_stream(self,
+                          samp_width: int|str="float32",
                           n_channels: int=1,
                           sample_rate: int|None=None,
                           chunk:int=3200) -> None:
@@ -589,7 +608,10 @@ class Music(Sounds, Export):
     
     
     def fix_volume(self, volume:float=0) -> float:
-        if volume > self.max_amp or volume < self.min_amp:
+        if not volume:
+            volume = self.max_amp/2
+        
+        elif volume > self.max_amp or volume < self.min_amp:
             raise f"volume must be between {self.min_amp} and {self.max_amp}"
         
         return volume
@@ -712,12 +734,14 @@ class Music(Sounds, Export):
         return buf
     
     
-    def add_buffers(a: SoundBuffer, b: SoundBuffer) -> SoundBuffer:
+    def add_buffers(a: SoundBuffer, b: SoundBuffer, keep_volume: bool=True) -> SoundBuffer:
         s = a.size if a.size < b.size else b.size
-        return (a[:s] + b[:s]) / 2
+        result = (a[:s] + b[:s])
+        if keep_volume: result /= 2
+        return result
     
     
-    def add_multiple_buffers(*buffers: SoundBuffer):
+    def add_multiple_buffers(*buffers: SoundBuffer, keep_volume: bool=True):
         s: int = buffers[0].size
         for buffer in buffers[1:]:
             if buffer.size < s:
@@ -727,8 +751,10 @@ class Music(Sounds, Export):
         
         for buffer in buffers[1:]:
             s_bufs += buffer[:s]
+        
+        if keep_volume: s_bufs /= len(buffers)
             
-        return s_bufs / len(buffers)
+        return s_bufs
     
     # creates a note buffer and plays it
     def play(self, note:str|float|int, wave_type: Wave, duration:str|float=0, volume:float=0) -> None:
@@ -743,7 +769,7 @@ class Music(Sounds, Export):
         """plays the given wave"""
         
         if type(wave) == bytes:
-            dtype = self.dtype if not dtype else dtype
+            if not dtype: dtype = self.dtype
             wave = np.frombuffer(wave, self.dtype)
         
         n_chunks = int(wave.size / chunk)
@@ -789,7 +815,7 @@ class Music(Sounds, Export):
     def visualize_sound(self, wave: SoundBuffer, sample_rate: int|None=None) -> None:
         """uses matplotlib.pyplot to visualize sound waves"""
         
-        sample_rate = self.sample_rate if not sample_rate else sample_rate
+        if not sample_rate: sample_rate = self.sample_rate
         
         times = np.linspace(0, wave.size/sample_rate, wave.size)
         duration = wave.size / sample_rate
