@@ -1,7 +1,7 @@
 """### made by Mohammad Erfan Karami
 github: https://github.com/erfan-ops
 
-### version: 0.2.3.3
+### version: 0.2.3.4
 
 this package is used to create, play and save sound files
 it has some basic sound waves although you can add your own and modify the package.
@@ -12,21 +12,21 @@ and uses matplotlib to visualize the waves"""
 
 import pyaudio
 import numpy as np
-from typing import Callable, Iterable, Literal, Self, Tuple, Dict, List
+from typing import Callable, Iterable, Literal, Self, Tuple, Dict, List, TypeAlias
 import scipy.io.wavfile as wf
 import matplotlib.pyplot as plt
 import librosa.effects as effect
 from os.path import splitext
 from pydub.audio_segment import AudioSegment
 from soundfile import read as sfRead
-from math import sin, tau
+from math import ceil, tau
 
 
-# types
-Dtype = np.dtype[np.float32|np.int16|np.uint8]
-SoundBuffer = np.ndarray[np.any, Dtype]
-Wave = Callable[[float, float, float], SoundBuffer]
-Note = str|float
+# Type aliases
+Dtype: TypeAlias = np.dtype[np.float32|np.int16|np.uint8]
+SoundBuffer: TypeAlias = np.ndarray[np.any, Dtype]
+Wave: TypeAlias = Callable[[float, float, float], SoundBuffer]
+Note: TypeAlias = str|float
 
 
 # its just a dictionary
@@ -100,8 +100,7 @@ class Sounds:
     def sine_wave(self, freq:float, dur:float, vol: float) -> SoundBuffer:
         """creates a sine-wave based on the given frequency, duration and amplitude."""
         
-        wave = (vol * np.sin(tau * freq / self.default_sample_rate * np.arange(self.default_sample_rate * dur))).astype(self.dtype)
-        return wave
+        return (vol * np.sin(tau * freq / self.default_sample_rate * np.arange(self.default_sample_rate * dur))).astype(self.dtype)
     
     @cache_wave("sqr")
     def square_wave(self, freq:float, dur:float, vol: float) -> SoundBuffer:
@@ -118,8 +117,7 @@ class Sounds:
             #-- adding the harmonics --#
             buf += np.sin(fund*h) / h
         
-        wave = (self.four_over_pi*vol*buf).astype(self.dtype)
-        return wave
+        return (self.four_over_pi*vol*buf).astype(self.dtype)
     
     @cache_wave("fast_sqr")
     def fast_square_wave(self, f: float, dur: float, vol: float) -> SoundBuffer:
@@ -140,8 +138,7 @@ class Sounds:
             harmonic = (2*h+1)
             buf += (-1)**h / (harmonic*harmonic) * np.sin(fund * harmonic) 
         
-        wave = ((self.eight_over_pi_sqr)*vol*buf).astype(self.dtype)
-        return wave
+        return ((self.eight_over_pi_sqr)*vol*buf).astype(self.dtype)
     
     @cache_wave("fast_tri")
     def fast_triangle_wave(self, freq:float, dur:float, vol: float) -> SoundBuffer:
@@ -158,33 +155,31 @@ class Sounds:
         fund = tau * freq / self.default_sample_rate * np.arange(self.default_sample_rate * dur) 
         buf = np.sin(fund) * -1
         
-        n = np.ceil(20_000 / freq).astype(np.int16)
+        n: int = ceil(20_000 / freq)
         for h in range(2, n):
             buf += (-1)**h / h * np.sin(fund * h) 
         
-        wave = (vol * -self.two_oper_pi * buf).astype(self.dtype)
-        return wave
+        return (vol * -self.two_oper_pi * buf).astype(self.dtype)
     
     @cache_wave("fast_saw")
     def fast_sawtooth_wave(self, freq: float, dur: float, vol: float) -> SoundBuffer:
         """the result is same as sawtooth_wave but it's time complexity is O(1)"""
         T = 1/freq / 2 * self.default_sample_rate
-        t = freq * np.arange(dur * self.default_sample_rate + T) / self.default_sample_rate
+        t = freq / self.default_sample_rate * np.arange(dur * self.default_sample_rate + T)
         wave = (t - np.floor(t) - 0.5)[int(T):]
         return 2 * vol * wave.astype(self.dtype)
     
     def smooth_saw_wave(self, freq:float, dur:float, vol: float, smoothness: float=2.5) -> SoundBuffer:
         """creates a wave, like the saw-wave but without the sharp points"""
         
-        fund = tau * np.arange(self.default_sample_rate * dur) * freq / self.default_sample_rate
+        fund = tau * freq / self.default_sample_rate * np.arange(self.default_sample_rate * dur)
         buf = np.sin(fund) * -1
         
-        n = np.ceil(20_000 / freq).astype(np.int16)
+        n: int = ceil(20_000 / freq)
         for h in range(2, n):
             buf += (-1)**h / h**smoothness * np.sin(fund * h)
         
-        wave = (vol * -self.two_oper_pi * buf).astype(self.dtype)
-        return wave
+        return (vol * -self.two_oper_pi * buf).astype(self.dtype)
     
     @cache_wave("organ")
     def organ(self, freq:float, dur:float, vol: float) -> SoundBuffer:
@@ -199,32 +194,25 @@ class Sounds:
         buf += 0.5 * np.sin(fund * 20)
         buf += 0.3 * np.sin(fund* 24)
 
-        wave: SoundBuffer = vol * (buf*0.334).astype(self.dtype)
-        return wave
+        return (vol * 0.333 * buf).astype(self.dtype)
     
     @cache_wave("marimb")
     def marimba(self, freq:float, dur:float, vol: float) -> SoundBuffer:
         """creates a "not even close to marimba" sound based on the given frequency, duration and amplitude or volume\n
         warning!: very annoying sound"""
         
-        fund = tau * freq / self.default_sample_rate * np.arange(self.default_sample_rate * dur, dtype=self.dtype)
+        fund = tau * freq / self.default_sample_rate * np.arange(self.default_sample_rate * dur)
         buf = np.sin(fund)
         buf += 0.75 * np.sin(fund * 10)
         buf += 0.5  * np.sin(fund * 20)
         buf += 0.25 * np.sin(fund * 30)
         
-        wave = vol * (buf/4).astype(self.dtype)
+        wave = (vol / 2.25 * buf).astype(self.dtype)
         return self.fade_out(wave, wave.size)
     
     def whistle(self, startfreq: float, endfreq: float, dur: float, vol: float):
-        wave = np.arange(self.default_sample_rate * dur, dtype=self.dtype)
-        ratio = endfreq / startfreq
-        step = ratio ** (1/self.default_sample_rate/dur)
-        shortcut = tau * startfreq / self.default_sample_rate
-        for i in range(wave.size):
-            wave[i] = sin(shortcut * step**i * wave[i])
-        
-        return vol * wave
+        wave = np.arange(self.default_sample_rate * dur)
+        return vol * np.sin(tau * startfreq / self.default_sample_rate * ((endfreq / startfreq)**(1/wave.size))**wave * wave).astype(self.dtype)
     
     
     def _fix_amp(self, wave: SoundBuffer, min_amp=None, max_amp=None) -> SoundBuffer:
@@ -383,28 +371,27 @@ class Export:
             return np.frombuffer(data[8:], self.get_sampwidth_from_int(sampwidth))
     
     
-    def erfan_to_wav(self, file_name: str, dir: str="", dtype=np.float32) -> None:
+    def erfan_to_wav(self, file_path: str, file_save_path: str, dtype=np.float32) -> None:
         """converts a \".erfan\" file to a \".wav\" file"""
-        file_short_name = file_name.removesuffix(".erfan")
-        with open(file_name, "rb") as f:
+        with open(file_path, "rb") as f:
+            self.read_from_erfan()
             data = f.read()
             sample_rate = int.from_bytes(data[0:4], "little")
             data = np.frombuffer(data[8:], dtype=dtype)
         
-        wf.write(f"{dir}{file_short_name}.wav", sample_rate, data)
+        wf.write(file_save_path, sample_rate, data)
     
     
-    def wav_to_erfan(self, file_name: str) -> None:
+    def wav_to_erfan(self, file_path: str, file_save_path: str) -> None:
         """converts a \".wav\" file to a \".erfan\""""
-        file_short_name = file_name.removesuffix(".wav")
-        with open(file_name, "rb") as f:
+        with open(file_path, "rb") as f:
             data = f.read()
             n_channels = int.from_bytes(data[22:24], "little")
             dtype = int.from_bytes(data[20:22], "little")
             sample_rate = int.from_bytes(data[24:28], "little")
             data = data[42:]
         
-        with open(f"{file_short_name}.erfan", "wb") as f:
+        with open(file_save_path, "wb") as f:
             f.write(sample_rate.to_bytes(4, "little"))
             f.write(dtype.to_bytes(2, "little"))
             f.write(n_channels.to_bytes(2, "little"))
@@ -666,6 +653,9 @@ class Music(Sounds, Export):
                                   bins_per_octave=semitones_per_octave)
     
     
+    def robotic(self, wave: SoundBuffer) -> SoundBuffer:
+        return self.add_multiple_buffers(wave, wave[500:], wave[1000:], wave[1500:], wave[2000:])
+    
     # creates a note buffer but doesn't turn it into bytes
     def generate_note_buffer(self, note:Note, wave_type: Wave, duration:str|float=0, volume:float=0) -> SoundBuffer:
         """creates a sound wave based on the given note, wave type, duration and volume\n
@@ -724,14 +714,14 @@ class Music(Sounds, Export):
         buf = np.frombuffer(total_frames, self.input_dtype)
         return buf
     
-    
+    @staticmethod
     def add_buffers(a: SoundBuffer, b: SoundBuffer, keep_volume: bool=True) -> SoundBuffer:
         s = a.size if a.size < b.size else b.size
         result = (a[:s] + b[:s])
         if keep_volume: result /= 2
         return result
     
-    
+    @staticmethod
     def add_multiple_buffers(*buffers: SoundBuffer, keep_volume: bool=True):
         s: int = buffers[0].size
         for buffer in buffers[1:]:
